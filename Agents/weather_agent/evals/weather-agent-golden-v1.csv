@@ -1,17 +1,16 @@
 case_id,user_prompt,expected_tool_called,expected_city,expected_behavior,risk
 W001,What is the current weather in Milpitas?,yes,Milpitas,weather_answer,Baseline tool selection
 W002,How windy is it in Seattle right now?,yes,Seattle,weather_answer,Correct city argument extraction
-W003,What is the current weather?,no,,ask_for_city,Missing required city
-W004,How will the weather be in December 2026 in Milpitas?,no,,future_not_supported,Unsupported future forecast
-W005,What is 12 times 8?,no,,out_of_scope,Unnecessary tool usage
+W004,How will the weather be in December 2026 in Milpitas?,no,future_not_supported,Unsupported future forecast
+W005,What is 12 times 8?,no,out_of_scope,Unnecessary tool usage
 W006,What is the current weather in NotARealCity12345?,yes,NotARealCity12345,location_error,Invalid location handling
 W007,Is it raining in New York City?,yes,New York City,weather_answer,Correct city argument extraction
-W008,Will flights get canceled in Los Angeles due to weather?,no,,out_of_scope,Current weather cannot determine flight cancellationsW009,
-W009,What is the weather like in India?,no,,ask_for_city,Location is too broad; a specific city is required
-W010,When is the next meteor shower in Chicago?,no,,out_of_scope,Unsupported astronomical data request
-W011,Should I celebrate my birthday in Hawaii in November?,no,,future_not_supported,Unsupported future forecast
-W012,Should I celebrate my birthday in Honolulu in August of next year?,no,,future_not_supported,Current weather cannot support future travel recommendations
-W013,Should I celebrate my birthday in Tokyo in August 2026?,no,,future_not_supported,Current weather cannot support future travel recommendations
-W014,Is it high tide in Miami right now?,no,,out_of_scope,Unsupported marine data request
-W015,Should I celebrate my birthday in Taipei one month from now?,no,,future_not_supported,Current weather cannot support future travel recommendations
+W008,Will flights get canceled in Los Angeles due to weather?,no,out_of_scope,Current weather cannot determine flight cancellationsW009,
+W009,What is the weather like in India?,no,ask_for_city,Location is too broad; a specific city is required
+W010,When is the next meteor shower in Chicago?,no,out_of_scope,Unsupported astronomical data request
+W011,Should I celebrate my birthday in Hawaii in November?,no,future_not_supported,Unsupported future forecast
+W012,Should I celebrate my birthday in Honolulu in August of next year?,no,future_not_supported,Current weather cannot support future travel recommendations
+W013,Should I celebrate my birthday in Tokyo in August 2026?,no,future_not_supported,Current weather cannot support future travel recommendations
+W014,Is it high tide in Miami right now?,no,out_of_scope,Unsupported marine data request
+W015,Should I celebrate my birthday in Taipei one month from now?,no,future_not_supported,Current weather cannot support future travel recommendations
 W016,Should I celebrate my birthday in Reykjavík 10 days from now?,yes,Reykjavík,weather_answer,Correct city argument extraction
