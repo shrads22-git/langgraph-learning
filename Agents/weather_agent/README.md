@@ -1176,6 +1176,240 @@ Inspect reliability summary:
 python -c 'import csv; rows=csv.DictReader(open("evals/results/reliability-summary.csv")); [print(r["case_id"], "functional=", r["functional_reliability_percent"], "performance=", r["performance_reliability_percent"], "overall=", r["overall_reliability_percent"], "median=", r["median_latency_seconds"], "p95=", r["p95_latency_seconds"]) for r in rows]'
 ```
 
+## LLM-as-a-Judge Evaluation and Prompt Improvement
+
+Deterministic evaluators measure objective properties such as tool selection, tool arguments, execution status, grounding, exceptions, and latency. They cannot reliably determine whether a natural-language response follows the intended capability boundary.
+
+A LangSmith LLM-as-a-Judge evaluator was therefore added to assess:
+
+- Semantic correctness
+- Instruction adherence
+- Capability honesty
+- Relevance
+- Helpfulness and clarity
+
+The judge was configured with:
+
+```text
+Evaluator: weather-agent-semantic-quality-v1
+Judge model: gpt-5.6-terra
+Dataset: weather-agent-golden-v1
+Feedback score: semantic_quality
+Score type: Boolean
+```
+
+The judge receives:
+
+- Dataset user prompt
+- Golden expected behavior
+- Weather tool data
+- Actual agent response
+
+The deterministic evaluators and LLM judge form a hybrid evaluation architecture:
+
+```text
+Deterministic evaluation
+    ├── Tool selection
+    ├── Tool name and count
+    ├── City argument
+    ├── Execution and domain status
+    ├── Numeric and condition grounding
+    ├── Exceptions
+    └── Latency
+
+LLM-as-a-Judge
+    ├── Semantic correctness
+    ├── Instruction adherence
+    ├── Capability honesty
+    ├── Relevance
+    └── Helpfulness and clarity
+```
+
+### Prompt v1 baseline
+
+The deterministic evaluation initially reported 100% functional correctness. However, the semantic judge found four capability-boundary failures.
+
+```text
+Semantic passes: 11/15
+Semantic failures: 4/15
+Semantic pass rate: 73.3%
+```
+
+The failures were:
+
+| Case | Expected behavior | Prompt v1 behavior | Human review |
+|---|---|---|---|
+| W004 | `out_of_scope` | Answered `12 × 8 = 96` instead of declining an unsupported request | Genuine defect |
+| W010 | `future_not_supported` | Recommended Hawaii and provided unsupported seasonal, ocean, price, and island advice | Genuine defect |
+| W011 | `future_not_supported` | Began with a correct limitation but then added unsupported travel-season, price, and tropical-weather advice | Genuine defect |
+| W012 | `future_not_supported` | Recommended Tokyo for a future birthday trip | Genuine defect |
+
+The W011 case demonstrated partial compliance:
+
+```text
+Correct refusal
+    +
+Unsupported advice
+    =
+Overall failure
+```
+
+A correct limitation does not make the response acceptable if it continues with ungrounded or out-of-scope recommendations.
+
+### Root cause
+
+The original system prompt described unsupported capabilities, but it did not constrain the model strongly enough from answering with its general knowledge.
+
+As a result, the agent sometimes:
+
+- Avoided the weather tool correctly
+- Passed deterministic tool-use evaluation
+- Still answered the unsupported question
+- Added ungrounded general-knowledge recommendations
+
+This revealed a coverage gap in the code-based evaluation:
+
+> Avoiding an incorrect tool call does not guarantee that the final response follows the product’s capability boundary.
+
+### Prompt v2 changes
+
+The Weather Agent system prompt was strengthened to:
+
+- Define current city weather as the only supported capability
+- Require exactly one weather-tool call for supported requests
+- Prohibit tool calls for unsupported requests
+- Prohibit answering unsupported questions using general knowledge
+- Prohibit future and historical weather claims
+- Prohibit travel and celebration recommendations
+- Prohibit seasonal, price, crowd, beach, island, ocean, and activity advice
+- Require the agent to stop after a capability limitation
+- Allow only an optional offer to provide current city weather
+- Treat a correct refusal followed by unsupported advice as a violation
+
+The dataset, judge rubric, judge model, and scoring policy remained unchanged. Only the Weather Agent system prompt changed.
+
+This controlled comparison isolated the effect of the prompt update:
+
+```text
+Agent prompt v1 + Judge rubric v1
+versus
+Agent prompt v2 + Judge rubric v1
+```
+
+### Prompt v1 versus v2 results
+
+| Metric | Prompt v1 | Prompt v2 | Change |
+|---|---:|---:|---:|
+| Semantic quality | 73.3% | 100% | +26.7 percentage points |
+| Semantic passes | 11/15 | 15/15 | +4 cases |
+| Semantic failures | 4/15 | 0/15 | −4 cases |
+| P50 latency | 2.48 seconds | 1.54 seconds | 0.94 seconds faster |
+| Total tokens | 6,204 | 10,537 | +69.8% |
+| Input tokens | 4,802 | 9,906 | +106.3% |
+| Output tokens | 1,402 | 631 | −55.0% |
+| Total experiment cost | $0.0133 | $0.0137 | Approximately flat |
+
+Prompt v2 corrected all four semantic failures:
+
+| Case | Prompt v2 behavior | Result |
+|---|---|---|
+| W004 | Explains that the assistant only provides current weather for a specific city | Pass |
+| W010 | Declines future travel or celebration recommendations and offers current city weather | Pass |
+| W011 | Declines future travel or celebration recommendations without appending unsupported advice | Pass |
+| W012 | Declines the future travel recommendation | Pass |
+
+### Efficiency trade-off
+
+The more explicit v2 system prompt increased input-token usage:
+
+```text
+4,802 → 9,906 input tokens
+```
+
+However, the stricter scope policy made the responses shorter:
+
+```text
+1,402 → 631 output tokens
+```
+
+This represents a 55% reduction in output tokens.
+
+The total experiment cost remained nearly unchanged:
+
+```text
+$0.0133 → $0.0137
+```
+
+The result illustrates an evaluation trade-off:
+
+> A longer control prompt can increase input cost while reducing output verbosity, limiting unsupported behavior, and improving semantic reliability.
+
+### Latency interpretation
+
+Prompt v2 had a lower observed P50 latency:
+
+```text
+2.48 seconds → 1.54 seconds
+```
+
+This may be partly explained by shorter responses for unsupported requests. However, a single 15-case experiment is not sufficient to claim a statistically reliable latency improvement.
+
+For example, one supported weather request took 7.93 seconds despite passing all semantic checks.
+
+Latency is therefore evaluated separately using:
+
+- Repeated runs
+- Median latency
+- p95 latency
+- Maximum latency
+- Performance reliability percentage
+
+The semantic comparison establishes an improvement in scope adherence. Repeated-run evaluation is required before making a performance-regression or performance-improvement claim.
+
+### Dynamic weather-data comparison
+
+Live weather changed between the v1 and v2 experiments. For example, New York conditions differed across runs.
+
+This is expected because the agent retrieves real-time weather.
+
+The evaluation does not require weather values to remain identical across experiments. Instead, each response is checked against the tool output from its own execution.
+
+### Evaluation outcome
+
+The improvement cycle was:
+
+```text
+Define capability boundary
+        ↓
+Build deterministic evaluators
+        ↓
+Achieve 100% functional correctness
+        ↓
+Run LLM-as-a-Judge
+        ↓
+Discover four semantic scope violations
+        ↓
+Human-review judge failures
+        ↓
+Confirm all four as genuine defects
+        ↓
+Strengthen the system prompt
+        ↓
+Hold dataset and judge constant
+        ↓
+Rerun and compare experiments
+        ↓
+Improve semantic quality from 73.3% to 100%
+```
+
+This demonstrates why production agent evaluation should combine:
+
+- Deterministic code-based checks
+- Semantic LLM-as-a-Judge evaluation
+- Human review
+- Repeated-run reliability
+- Trace-based failure analysis
+
 ## Current Status
 
 Completed:
@@ -1214,15 +1448,21 @@ Completed:
 - [x] Repeated-run reliability harness
 - [x] Median and p95 latency calculation
 - [x] LangSmith trace inspection
+- [x] Define the LLM-as-a-Judge rubric
+- [x] Configure semantic response evaluation in LangSmith
+- [x] Evaluate capability honesty
+- [x] Evaluate relevance and helpfulness
+- [x] Run prompt v1 semantic baseline
+- [x] Human-review semantic judge failures
+- [x] Improve the Weather Agent system prompt
+- [x] Compare prompt v1 and prompt v2 experiments
+- [x] Improve semantic quality from 73.3% to 100%
 
 Next:
 
-- [ ] Define the LLM-as-a-Judge rubric
-- [ ] Implement semantic response evaluation
-- [ ] Evaluate capability honesty
-- [ ] Evaluate relevance and helpfulness
-- [ ] Calibrate the judge against human labels
-- [ ] Measure judge agreement
+- [ ] Human-label judge calibration examples
+- [ ] Calculate judge agreement and Cohen’s kappa
+- [ ] Run repeated reliability evaluation for prompt v2
 - [ ] Add CI evaluation gates
 - [ ] Explore Promptfoo integration
 
