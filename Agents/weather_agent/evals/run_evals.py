@@ -1,6 +1,7 @@
-"""Run code-based evaluations against the Weather Agent golden dataset."""
+"""Run code-based evaluations for the Weather Agent."""
 
 import csv
+import json
 import time
 from pathlib import Path
 from typing import Any
@@ -8,8 +9,11 @@ from typing import Any
 from agent import weather_agent
 from evals.evaluators import (
     evaluate_city_argument,
+    evaluate_condition_grounding,
+    evaluate_domain_status,
     evaluate_latency,
     evaluate_no_unhandled_exception,
+    evaluate_numeric_grounding,
     evaluate_response_presence,
     evaluate_tool_call_count,
     evaluate_tool_called,
@@ -18,12 +22,22 @@ from evals.evaluators import (
 )
 
 
-EVALS_DIRECTORY = Path(__file__).parent
-DATASET_PATH = EVALS_DIRECTORY / "weather-agent-golden-v1.csv"
-RESULTS_DIRECTORY = EVALS_DIRECTORY / "results"
-RESULTS_PATH = RESULTS_DIRECTORY / "latest-results.csv"
+# ---------------------------------------------------------------------------
+# File locations
+# ---------------------------------------------------------------------------
 
-MAXIMUM_LATENCY_SECONDS = 5.0
+EVALS_DIRECTORY = Path(__file__).parent
+
+DATASET_PATH = (
+    EVALS_DIRECTORY
+    / "weather-agent-golden-v1.csv"
+)
+
+RESULTS_PATH = (
+    EVALS_DIRECTORY
+    / "results"
+    / "latest-results.csv"
+)
 
 REQUIRED_DATASET_COLUMNS = {
     "case_id",
@@ -31,85 +45,69 @@ REQUIRED_DATASET_COLUMNS = {
     "expected_tool_called",
     "expected_city",
     "expected_behavior",
+    "expected_response_fields",
     "risk",
 }
 
 
+# ---------------------------------------------------------------------------
+# Golden-dataset loading
+# ---------------------------------------------------------------------------
+
 def load_golden_dataset() -> list[dict[str, str]]:
-    """Load and validate the golden evaluation dataset."""
+    """Load and validate the Weather Agent golden dataset."""
+
+    if not DATASET_PATH.exists():
+        raise FileNotFoundError(
+            f"Golden dataset was not found: {DATASET_PATH}"
+        )
 
     with DATASET_PATH.open(
         mode="r",
-        encoding="utf-8",
+        encoding="utf-8-sig",
         newline="",
     ) as dataset_file:
         reader = csv.DictReader(dataset_file)
 
-        actual_columns = set(reader.fieldnames or [])
+        if reader.fieldnames is None:
+            raise ValueError(
+                "The golden dataset does not contain a header row."
+            )
+
         missing_columns = (
-            REQUIRED_DATASET_COLUMNS - actual_columns
+            REQUIRED_DATASET_COLUMNS
+            - set(reader.fieldnames)
         )
 
         if missing_columns:
+            missing = ", ".join(sorted(missing_columns))
+
             raise ValueError(
-                "Golden dataset is missing required columns: "
-                f"{sorted(missing_columns)}"
+                "The golden dataset is missing required columns: "
+                f"{missing}"
             )
 
-        rows = list(reader)
+        test_cases = list(reader)
 
-    if not rows:
-        raise ValueError(
-            "Golden dataset does not contain any cases."
-        )
+    if not test_cases:
+        raise ValueError("The golden dataset is empty.")
 
-    for line_number, row in enumerate(rows, start=2):
-        if None in row:
-            raise ValueError(
-                f"CSV row {line_number} contains too many columns."
-            )
+    return test_cases
 
-        if not row["case_id"].strip():
-            raise ValueError(
-                f"CSV row {line_number} is missing case_id."
-            )
 
-        if not row["user_prompt"].strip():
-            raise ValueError(
-                f"CSV row {line_number} is missing user_prompt."
-            )
-
-        if not row["expected_tool_called"].strip():
-            raise ValueError(
-                f"CSV row {line_number} is missing "
-                "expected_tool_called."
-            )
-
-        if not row["expected_behavior"].strip():
-            raise ValueError(
-                f"CSV row {line_number} is missing "
-                "expected_behavior."
-            )
-
-    case_ids = [row["case_id"] for row in rows]
-
-    if len(case_ids) != len(set(case_ids)):
-        raise ValueError(
-            "Golden dataset contains duplicate case IDs."
-        )
-
-    return rows
-
+# ---------------------------------------------------------------------------
+# Message and tool-output extraction
+# ---------------------------------------------------------------------------
 
 def extract_message_text(message: Any) -> str:
     """Extract readable text from a LangChain message."""
 
     text = getattr(message, "text", None)
 
-    if isinstance(text, str):
+    if isinstance(text, str) and text.strip():
         return text.strip()
 
-    content = getattr(message, "content", "")
+    content = getattr(message, "content", None)
 
     if isinstance(content, str):
         return content.strip()
@@ -117,83 +115,171 @@ def extract_message_text(message: Any) -> str:
     if isinstance(content, list):
         text_parts = []
 
-        for block in content:
-            if isinstance(block, str):
-                text_parts.append(block)
+        for item in content:
+            if isinstance(item, str):
+                text_parts.append(item)
+                continue
 
-            elif isinstance(block, dict):
-                block_text = block.get("text")
+            if not isinstance(item, dict):
+                continue
 
-                if block_text:
-                    text_parts.append(str(block_text))
+            item_text = item.get("text")
 
-        return " ".join(text_parts).strip()
+            if isinstance(item_text, str):
+                text_parts.append(item_text)
 
-    if content:
-        return str(content).strip()
+        return "\n".join(text_parts).strip()
 
     return ""
+
+
+def extract_tool_payload(message: Any) -> dict[str, Any]:
+    """Convert a tool message's output into a Python dictionary."""
+
+    content = getattr(message, "content", None)
+
+    if isinstance(content, dict):
+        return content
+
+    if isinstance(content, list):
+        for item in content:
+            if isinstance(item, dict):
+                if "status" in item or "data" in item:
+                    return item
+
+                item_text = item.get("text")
+
+                if isinstance(item_text, str):
+                    try:
+                        decoded = json.loads(item_text)
+                    except json.JSONDecodeError:
+                        continue
+
+                    if isinstance(decoded, dict):
+                        return decoded
+
+        return {}
+
+    if not isinstance(content, str):
+        return {}
+
+    try:
+        decoded = json.loads(content)
+    except json.JSONDecodeError:
+        return {}
+
+    if isinstance(decoded, dict):
+        return decoded
+
+    return {}
+
+
+def extract_domain_status(payload: dict[str, Any]) -> str | None:
+    """Extract the application-level status from tool output."""
+
+    status = payload.get("status")
+
+    if isinstance(status, str):
+        return status
+
+    return None
 
 
 def extract_trajectory(
     messages: list[Any],
 ) -> dict[str, Any]:
-    """Extract tool and response details from agent messages."""
+    """Extract tool calls, tool results, and the final response."""
 
-    tool_names = []
-    cities = []
-    tool_execution_statuses = []
+    tool_names: list[str] = []
+    cities: list[str | None] = []
+    tool_execution_statuses: list[str] = []
+    domain_statuses: list[str] = []
+    tool_data: dict[str, Any] = {}
+    final_response = ""
 
     for message in messages:
-        tool_calls = (
-            getattr(message, "tool_calls", None) or []
-        )
+        tool_calls = getattr(message, "tool_calls", None)
 
-        for tool_call in tool_calls:
-            tool_name = tool_call.get("name")
+        if tool_calls:
+            for tool_call in tool_calls:
+                if not isinstance(tool_call, dict):
+                    continue
 
-            if tool_name:
-                tool_names.append(tool_name)
+                tool_name = tool_call.get("name")
 
-            arguments = tool_call.get("args", {})
+                if isinstance(tool_name, str):
+                    tool_names.append(tool_name)
 
-            if isinstance(arguments, dict):
-                cities.append(arguments.get("city"))
+                arguments = (
+                    tool_call.get("args")
+                    or tool_call.get("arguments")
+                    or {}
+                )
+
+                if isinstance(arguments, str):
+                    try:
+                        arguments = json.loads(arguments)
+                    except json.JSONDecodeError:
+                        arguments = {}
+
+                if isinstance(arguments, dict):
+                    cities.append(arguments.get("city"))
+                else:
+                    cities.append(None)
 
         message_type = getattr(message, "type", "")
 
         if message_type == "tool":
-            status = getattr(
+            framework_status = getattr(
                 message,
                 "status",
-                "success",
+                None,
             )
 
-            tool_execution_statuses.append(str(status))
+            if framework_status == "error":
+                tool_execution_statuses.append("error")
+            else:
+                # A structured application error such as an invalid city
+                # still means the framework executed the tool successfully.
+                tool_execution_statuses.append("success")
 
-    final_response = ""
+            payload = extract_tool_payload(message)
+            domain_status = extract_domain_status(payload)
 
-    if messages:
-        final_response = extract_message_text(
-            messages[-1]
-        )
+            if domain_status:
+                domain_statuses.append(domain_status)
+
+            payload_data = payload.get("data")
+
+            if isinstance(payload_data, dict):
+                tool_data = payload_data
+
+        if message_type in {"ai", "assistant"} and not tool_calls:
+            response_text = extract_message_text(message)
+
+            if response_text:
+                final_response = response_text
 
     return {
-        "tool_call_count": len(tool_names),
         "tool_names": tool_names,
         "cities": cities,
-        "tool_execution_statuses":
-            tool_execution_statuses,
+        "tool_execution_statuses": tool_execution_statuses,
+        "domain_statuses": domain_statuses,
+        "tool_data": tool_data,
         "final_response": final_response,
     }
 
 
-def run_agent_once(
-    user_prompt: str,
-) -> dict[str, Any]:
-    """Run the Weather Agent once and capture its trajectory."""
+# ---------------------------------------------------------------------------
+# Agent execution
+# ---------------------------------------------------------------------------
+
+def run_agent_once(user_prompt: str) -> dict[str, Any]:
+    """Run one prompt through the real Weather Agent."""
 
     start_time = time.perf_counter()
+    unhandled_exception: Exception | None = None
+    messages: list[Any] = []
 
     try:
         result = weather_agent.invoke(
@@ -207,141 +293,211 @@ def run_agent_once(
             }
         )
 
-        latency_seconds = (
-            time.perf_counter() - start_time
-        )
-
-        trajectory = extract_trajectory(
-            result.get("messages", [])
-        )
-
-        trajectory["latency_seconds"] = (
-            latency_seconds
-        )
-        trajectory["unhandled_exception"] = None
-
-        return trajectory
+        messages = result.get("messages", [])
 
     except Exception as error:
-        latency_seconds = (
-            time.perf_counter() - start_time
-        )
+        unhandled_exception = error
 
-        return {
-            "tool_call_count": 0,
-            "tool_names": [],
-            "cities": [],
-            "tool_execution_statuses": [],
-            "final_response": "",
-            "latency_seconds": latency_seconds,
-            "unhandled_exception": error,
-        }
+    latency_seconds = time.perf_counter() - start_time
 
+    trajectory = extract_trajectory(messages)
+
+    return {
+        **trajectory,
+        "latency_seconds": latency_seconds,
+        "unhandled_exception": unhandled_exception,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Case evaluation
+# ---------------------------------------------------------------------------
 
 def evaluate_case(
     test_case: dict[str, str],
 ) -> dict[str, Any]:
-    """Run and score one golden-dataset case."""
+    """Run and evaluate one golden-dataset case."""
 
-    trajectory = run_agent_once(
+    agent_run = run_agent_once(
         test_case["user_prompt"]
     )
 
+    tool_names = agent_run["tool_names"]
+    cities = agent_run["cities"]
+    tool_execution_statuses = (
+        agent_run["tool_execution_statuses"]
+    )
+    domain_statuses = agent_run["domain_statuses"]
+    tool_data = agent_run["tool_data"]
+    final_response = agent_run["final_response"]
+    latency_seconds = agent_run["latency_seconds"]
+    unhandled_exception = agent_run[
+        "unhandled_exception"
+    ]
+
+    actual_tool_call_count = len(tool_names)
+
     scores = {
         "tool_called_pass": evaluate_tool_called(
-            trajectory["tool_call_count"],
+            actual_tool_call_count,
             test_case["expected_tool_called"],
         ),
         "tool_name_pass": evaluate_tool_name(
-            trajectory["tool_names"],
+            tool_names,
             test_case["expected_tool_called"],
         ),
-        "tool_call_count_pass":
+        "tool_call_count_pass": (
             evaluate_tool_call_count(
-                trajectory["tool_call_count"],
+                actual_tool_call_count,
                 test_case["expected_tool_called"],
+            )
         ),
-        "city_argument_pass":
-            evaluate_city_argument(
-                trajectory["cities"],
-                test_case["expected_city"],
-                test_case["expected_tool_called"],
+        "city_argument_pass": evaluate_city_argument(
+            cities,
+            test_case["expected_city"],
+            test_case["expected_tool_called"],
         ),
-        "tool_execution_pass":
+        "tool_execution_pass": (
             evaluate_tool_execution(
-                trajectory[
-                    "tool_execution_statuses"
-                ],
+                tool_execution_statuses,
                 test_case["expected_tool_called"],
                 test_case["expected_behavior"],
+            )
         ),
-        "no_unhandled_exception_pass":
+        "domain_status_pass": evaluate_domain_status(
+            domain_statuses,
+            test_case["expected_tool_called"],
+            test_case["expected_behavior"],
+        ),
+        "numeric_grounding_pass": (
+            evaluate_numeric_grounding(
+                final_response,
+                tool_data,
+                test_case["expected_response_fields"],
+            )
+        ),
+        "condition_grounding_pass": (
+            evaluate_condition_grounding(
+                final_response,
+                tool_data,
+                test_case["expected_response_fields"],
+            )
+        ),
+        "no_unhandled_exception_pass": (
             evaluate_no_unhandled_exception(
-                trajectory[
-                    "unhandled_exception"
-                ]
+                unhandled_exception
+            )
         ),
-        "response_presence_pass":
+        "response_presence_pass": (
             evaluate_response_presence(
-                trajectory["final_response"]
+                final_response
+            )
         ),
         "latency_pass": evaluate_latency(
-            trajectory["latency_seconds"],
-            MAXIMUM_LATENCY_SECONDS,
+            latency_seconds,
+            maximum_latency_seconds=5.0,
         ),
     }
 
-    overall_pass = all(scores.values())
-    exception = trajectory["unhandled_exception"]
+    # Functional correctness excludes latency.
+    functional_score_names = [
+        "tool_called_pass",
+        "tool_name_pass",
+        "tool_call_count_pass",
+        "city_argument_pass",
+        "tool_execution_pass",
+        "domain_status_pass",
+        "numeric_grounding_pass",
+        "condition_grounding_pass",
+        "no_unhandled_exception_pass",
+        "response_presence_pass",
+    ]
+
+    functional_pass = all(
+        scores[score_name]
+        for score_name in functional_score_names
+    )
+
+    performance_pass = scores["latency_pass"]
+
+    overall_pass = (
+        functional_pass
+        and performance_pass
+    )
+
+    if unhandled_exception is None:
+        exception_text = ""
+    else:
+        exception_text = (
+            f"{type(unhandled_exception).__name__}: "
+            f"{unhandled_exception}"
+        )
 
     return {
         "case_id": test_case["case_id"],
         "user_prompt": test_case["user_prompt"],
-        "expected_tool_called":
-            test_case["expected_tool_called"],
-        "expected_city":
-            test_case["expected_city"],
-        "expected_behavior":
-            test_case["expected_behavior"],
+        "expected_tool_called": (
+            test_case["expected_tool_called"]
+        ),
+        "expected_city": test_case["expected_city"],
+        "expected_behavior": (
+            test_case["expected_behavior"]
+        ),
+        "expected_response_fields": (
+            test_case["expected_response_fields"]
+        ),
         "risk": test_case["risk"],
-        "actual_tool_call_count":
-            trajectory["tool_call_count"],
-        "actual_tool_names": "|".join(
-            trajectory["tool_names"]
+        "actual_tool_call_count": (
+            actual_tool_call_count
         ),
-        "actual_cities": "|".join(
-            str(city)
-            for city in trajectory["cities"]
-            if city is not None
+        "actual_tool_names": json.dumps(
+            tool_names,
+            ensure_ascii=False,
         ),
-        "tool_execution_statuses": "|".join(
-            trajectory[
-                "tool_execution_statuses"
-            ]
+        "actual_cities": json.dumps(
+            cities,
+            ensure_ascii=False,
         ),
-        "final_response":
-            trajectory["final_response"],
+        "tool_execution_statuses": json.dumps(
+            tool_execution_statuses,
+            ensure_ascii=False,
+        ),
+        "domain_statuses": json.dumps(
+            domain_statuses,
+            ensure_ascii=False,
+        ),
+        "tool_data": json.dumps(
+            tool_data,
+            ensure_ascii=False,
+        ),
+        "final_response": final_response,
         "latency_seconds": round(
-            trajectory["latency_seconds"],
+            latency_seconds,
             3,
         ),
-        "unhandled_exception": (
-            f"{type(exception).__name__}: "
-            f"{exception}"
-            if exception
-            else ""
-        ),
+        "unhandled_exception": exception_text,
         **scores,
+        "functional_pass": functional_pass,
+        "performance_pass": performance_pass,
         "overall_pass": overall_pass,
     }
 
 
+# ---------------------------------------------------------------------------
+# Result reporting
+# ---------------------------------------------------------------------------
+
 def save_results(
     results: list[dict[str, Any]],
 ) -> None:
-    """Save evaluation results to a CSV file."""
+    """Save detailed evaluation results as a CSV file."""
 
-    RESULTS_DIRECTORY.mkdir(
+    if not results:
+        raise ValueError(
+            "There are no evaluation results to save."
+        )
+
+    RESULTS_PATH.parent.mkdir(
         parents=True,
         exist_ok=True,
     )
@@ -360,42 +516,120 @@ def save_results(
         writer.writerows(results)
 
 
+def calculate_pass_rate(
+    passed: int,
+    total: int,
+) -> float:
+    """Calculate a percentage pass rate."""
+
+    if total == 0:
+        return 0.0
+
+    return passed / total * 100
+
+
 def print_summary(
     results: list[dict[str, Any]],
 ) -> None:
-    """Print an evaluation summary."""
+    """Print functional, performance, and overall results."""
 
-    passed = sum(
-        1
+    total_cases = len(results)
+
+    functional_passed = sum(
+        result["functional_pass"]
         for result in results
-        if result["overall_pass"]
     )
 
-    total = len(results)
-    failed = total - passed
-    pass_rate = (passed / total) * 100
+    performance_passed = sum(
+        result["performance_pass"]
+        for result in results
+    )
 
-    print("\nWeather Agent Evaluation Summary")
+    overall_passed = sum(
+        result["overall_pass"]
+        for result in results
+    )
+
+    functional_failed = (
+        total_cases - functional_passed
+    )
+    performance_failed = (
+        total_cases - performance_passed
+    )
+    overall_failed = total_cases - overall_passed
+
+    print()
+    print("Weather Agent Evaluation Summary")
     print("--------------------------------")
-    print(f"Total cases: {total}")
-    print(f"Passed:      {passed}")
-    print(f"Failed:      {failed}")
-    print(f"Pass rate:   {pass_rate:.1f}%")
-    print(f"Results:     {RESULTS_PATH}")
+    print(f"Total cases:        {total_cases}")
+    print()
+    print(
+        "Functional:         "
+        f"{functional_passed}/{total_cases} "
+        f"({calculate_pass_rate(functional_passed, total_cases):.1f}%)"
+    )
+    print(
+        "Performance:        "
+        f"{performance_passed}/{total_cases} "
+        f"({calculate_pass_rate(performance_passed, total_cases):.1f}%)"
+    )
+    print(
+        "Overall:            "
+        f"{overall_passed}/{total_cases} "
+        f"({calculate_pass_rate(overall_passed, total_cases):.1f}%)"
+    )
+    print()
+    print(
+        f"Functional failures:  {functional_failed}"
+    )
+    print(
+        f"Performance failures: {performance_failed}"
+    )
+    print(
+        f"Overall failures:      {overall_failed}"
+    )
+    print(f"Results: {RESULTS_PATH}")
 
-    if failed:
-        print("\nFailed cases:")
+    functional_failures = [
+        result
+        for result in results
+        if not result["functional_pass"]
+    ]
 
-        for result in results:
-            if not result["overall_pass"]:
-                print(
-                    f"- {result['case_id']}: "
-                    f"{result['user_prompt']}"
-                )
+    performance_failures = [
+        result
+        for result in results
+        if not result["performance_pass"]
+    ]
 
+    if functional_failures:
+        print()
+        print("Functional failures:")
+
+        for result in functional_failures:
+            print(
+                f'- {result["case_id"]}: '
+                f'{result["user_prompt"]}'
+            )
+
+    if performance_failures:
+        print()
+        print("Performance failures:")
+
+        for result in performance_failures:
+            print(
+                f'- {result["case_id"]}: '
+                f'{result["latency_seconds"]} seconds — '
+                f'{result["user_prompt"]}'
+            )
+
+
+# ---------------------------------------------------------------------------
+# Main evaluation runner
+# ---------------------------------------------------------------------------
 
 def main() -> None:
-    """Run the complete code-based evaluation suite."""
+    """Run every case in the golden dataset."""
 
     test_cases = load_golden_dataset()
     results = []
@@ -408,15 +642,15 @@ def main() -> None:
         result = evaluate_case(test_case)
         results.append(result)
 
-        status = (
+        outcome = (
             "PASS"
             if result["overall_pass"]
             else "FAIL"
         )
 
         print(
-            f"{case_id}: {status} "
-            f"({result['latency_seconds']} seconds)"
+            f"{case_id}: {outcome} "
+            f'({result["latency_seconds"]} seconds)'
         )
 
     save_results(results)
