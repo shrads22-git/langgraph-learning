@@ -17,7 +17,7 @@ from weather_tool import get_weather
 load_dotenv()
 
 
-@tool  # Decorator that registers the function as a tool for the AI agent.
+@tool
 def get_weather_for_city(city: str) -> dict:
     """Get the current weather for a city.
 
@@ -25,7 +25,20 @@ def get_weather_for_city(city: str) -> dict:
     temperature, humidity, precipitation, or wind in a city.
     """
 
-    return get_weather(city)
+    try:
+        weather = get_weather(city)
+
+        return {
+            "status": "success",
+            "data": weather,
+        }
+
+    except ValueError as error:
+        return {
+            "status": "error",
+            "error_type": "location_not_found",
+            "message": str(error),
+        }
 
 
 model = ChatOpenAI(

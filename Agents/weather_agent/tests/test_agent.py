@@ -1,6 +1,5 @@
 """Unit tests for agent.py."""
 
-# import the patch function from the unittest.mock module for mocking
 from unittest.mock import patch
 
 import pytest
@@ -36,36 +35,41 @@ def test_weather_tool_calls_get_weather(mock_get_weather):
     mock_get_weather.assert_called_once_with("Milpitas")
 
     assert result == {
-        "city": "Milpitas",
-        "state": "California",
-        "country": "United States",
-        "temperature_f": 72.5,
-        "condition": "Clear sky",
+        "status": "success",
+        "data": {
+            "city": "Milpitas",
+            "state": "California",
+            "country": "United States",
+            "temperature_f": 72.5,
+            "condition": "Clear sky",
+        },
     }
 
 
 @patch("agent.get_weather")
-def test_weather_tool_propagates_location_error(mock_get_weather):
-    """The agent tool should not hide errors from the weather service."""
+def test_weather_tool_handles_location_error(mock_get_weather):
+    """The tool should convert a location error into structured output."""
 
     mock_get_weather.side_effect = ValueError(
         "Could not find a location named 'Atlantis'."
     )
 
-    with pytest.raises(
-        ValueError,
-        match="Could not find a location named 'Atlantis'",
-    ):
-        get_weather_for_city.invoke(
-            {
-                "city": "Atlantis",
-            }
-        )
+    result = get_weather_for_city.invoke(
+        {
+            "city": "Atlantis",
+        }
+    )
+
+    assert result == {
+        "status": "error",
+        "error_type": "location_not_found",
+        "message": "Could not find a location named 'Atlantis'.",
+    }
 
 
 @patch("agent.get_weather")
-def test_weather_tool_propagates_http_error(mock_get_weather):
-    """The agent tool should not hide an API failure."""
+def test_weather_tool_propagates_unexpected_error(mock_get_weather):
+    """Unexpected failures should not be mislabeled as location errors."""
 
     mock_get_weather.side_effect = RuntimeError(
         "Weather service unavailable"
