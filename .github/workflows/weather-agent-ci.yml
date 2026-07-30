@@ -1,0 +1,59 @@
+name: Weather Agent CI
+
+on:
+  pull_request:
+    paths:
+      - "Agents/weather_agent/**"
+      - "requirements.txt"
+      - ".github/workflows/weather-agent-ci.yml"
+
+  push:
+    branches:
+      - main
+    paths:
+      - "Agents/weather_agent/**"
+      - "requirements.txt"
+      - ".github/workflows/weather-agent-ci.yml"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-quality-gates:
+    name: Offline quality gates
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: Agents/weather_agent
+
+    env:
+      # Unit tests mock external calls. This is not a real credential.
+      OPENAI_API_KEY: test-api-key
+      LANGSMITH_TRACING: "false"
+      OPENAI_MODEL: gpt-5.6-luna
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r ../../requirements.txt
+          python -m pip install pytest
+
+      - name: Run unit tests
+        run: python -m pytest tests -v
+
+      - name: Verify LLM judge calibration
+        run: python -m evals.calculate_judge_agreement
