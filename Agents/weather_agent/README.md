@@ -40,21 +40,21 @@ What is the current weather in Milpitas?
 
 ```text
 User prompt
-    ↓
+    â†“
 Model identifies a current-weather request
-    ↓
+    â†“
 Model extracts city = "Milpitas"
-    ↓
+    â†“
 Model selects get_weather_for_city
-    ↓
+    â†“
 Tool calls the Open-Meteo geocoding API
-    ↓
+    â†“
 City becomes latitude + longitude + timezone
-    ↓
+    â†“
 Tool calls the Open-Meteo forecast API
-    ↓
+    â†“
 Structured weather data is returned
-    ↓
+    â†“
 Model produces a grounded answer
 ```
 
@@ -64,8 +64,8 @@ Example response:
 Current weather in Milpitas, California:
 
 - Condition: Clear sky
-- Temperature: 62°F
-- Feels like: 62.7°F
+- Temperature: 62Â°F
+- Feels like: 62.7Â°F
 - Humidity: 86%
 - Precipitation: 0 inches
 - Wind: 4.5 mph
@@ -224,33 +224,40 @@ __pycache__/
 
 ```text
 langgraph-learning/
-├── .env.example
-├── .gitignore
-├── README.md
-├── main.py
-├── requirements.txt
-└── Agents/
-    └── weather_agent/
-        ├── agent.py
-        ├── weather_codes.py
-        ├── weather_tool.py
-        ├── README.md
-        ├── evals/
-        │   ├── evaluators.py
-        │   ├── eval-spec.md
-        │   ├── run_evals.py
-        │   ├── run_reliability.py
-        │   ├── weather-agent-golden-v1.csv
-        │   └── results/
-        │       ├── latest-results.csv
-        │       ├── reliability-details.csv
-        │       └── reliability-summary.csv
-        └── tests/
-            ├── test_agent.py
-            ├── test_evaluators.py
-            ├── test_weather_codes.py
-            └── test_weather_tool.py
+â”œâ”€â”€ .env.example
+â”œâ”€â”€ .gitignore
+â”œâ”€â”€ README.md
+â”œâ”€â”€ main.py
+â”œâ”€â”€ requirements.txt
+â””â”€â”€ Agents/
+    â””â”€â”€ weather_agent/
+        â”œâ”€â”€ agent.py
+        â”œâ”€â”€ weather_codes.py
+        â”œâ”€â”€ weather_tool.py
+        â”œâ”€â”€ README.md
+        â”œâ”€â”€ evals/
+        â”‚   â”œâ”€â”€ __init__.py
+        â”‚   â”œâ”€â”€ calculate_judge_agreement.py
+        â”‚   â”œâ”€â”€ eval-spec.md
+        â”‚   â”œâ”€â”€ evaluators.py
+        â”‚   â”œâ”€â”€ judge-rubric.md
+        â”‚   â”œâ”€â”€ run_evals.py
+        â”‚   â”œâ”€â”€ run_langsmith_experiment.py
+        â”‚   â”œâ”€â”€ run_reliability.py
+        â”‚   â”œâ”€â”€ weather-agent-golden-v1.csv
+        â”‚   â””â”€â”€ results/
+        â”‚       â”œâ”€â”€ judge-calibration-v1.csv
+        â”‚       â”œâ”€â”€ latest-results.csv
+        â”‚       â”œâ”€â”€ reliability-details.csv
+        â”‚       â””â”€â”€ reliability-summary.csv
+        â””â”€â”€ tests/
+            â”œâ”€â”€ test_agent.py
+            â”œâ”€â”€ test_evaluators.py
+            â”œâ”€â”€ test_weather_codes.py
+            â””â”€â”€ test_weather_tool.py
 ```
+
+`evals/__init__.py` marks `evals` as a Python package and may remain empty.
 
 ## Components
 
@@ -261,9 +268,9 @@ Open-Meteo returns weather conditions using numeric WMO weather codes.
 Examples:
 
 ```text
-0  → Clear sky
-61 → Slight rain
-95 → Thunderstorm
+0  â†’ Clear sky
+61 â†’ Slight rain
+95 â†’ Thunderstorm
 ```
 
 The function:
@@ -375,9 +382,9 @@ Combines location lookup and weather retrieval:
 
 ```text
 get_coordinates(city)
-        ↓
+        â†“
 get_current_weather(latitude, longitude, timezone)
-        ↓
+        â†“
 combined location and weather result
 ```
 
@@ -544,7 +551,7 @@ The model determines:
 - How to interpret structured results
 - How to communicate the final answer
 
-The Open-Meteo functions are primarily deterministic. The model’s tool selection, argument extraction, and final response are non-deterministic.
+The Open-Meteo functions are primarily deterministic. The modelâ€™s tool selection, argument extraction, and final response are non-deterministic.
 
 Because of that non-determinism, the agent requires both conventional unit tests and agent-specific evaluations.
 
@@ -554,13 +561,13 @@ The project uses multiple testing layers.
 
 ```text
 Unit tests
-    ↓
+    â†“
 Deterministic code-based agent evaluations
-    ↓
+    â†“
 Repeated-run reliability evaluation
-    ↓
+    â†“
 LangSmith trace inspection
-    ↓
+    â†“
 LLM-as-a-Judge evaluation (next phase)
 ```
 
@@ -736,12 +743,12 @@ The evaluation runner also examines how the agent produced the response:
 
 ```text
 Prompt
-  → model decision
-  → tool name
-  → tool arguments
-  → tool execution
-  → domain result
-  → final response
+  â†’ model decision
+  â†’ tool name
+  â†’ tool arguments
+  â†’ tool execution
+  â†’ domain result
+  â†’ final response
 ```
 
 The trajectory evaluator detects failures such as:
@@ -768,7 +775,7 @@ Examples:
 
 ```text
 Tool temperature: 62.0
-Response: "The temperature is 62°F."
+Response: "The temperature is 62Â°F."
 Result: PASS
 ```
 
@@ -803,9 +810,9 @@ The golden dataset specifies which fields are expected for each case.
 Examples:
 
 ```text
-W001 → condition|temperature_f
-W002 → wind_speed_mph
-W006 → condition
+W001 â†’ condition|temperature_f
+W002 â†’ wind_speed_mph
+W006 â†’ condition
 ```
 
 ## Single-Run Evaluation
@@ -911,7 +918,7 @@ python -m evals.run_reliability
 The current learning configuration runs each golden case three times:
 
 ```text
-15 cases × 3 attempts = 45 total attempts
+15 cases Ã— 3 attempts = 45 total attempts
 ```
 
 It saves two files.
@@ -967,7 +974,27 @@ p95 latency:              5.38 seconds
 
 This means the case was correct on every attempt, but only two of three attempts met the latency threshold.
 
-Three attempts are useful for basic flakiness detection and learning. A production-grade latency study should use more samples, such as 20–30 attempts or more.
+Three attempts are useful for basic flakiness detection and learning. A production-grade latency study should use more samples, such as 20â€“30 attempts or more.
+
+### Prompt v2 reliability result
+
+The prompt-v2 reliability run produced:
+
+| Metric | Result |
+|---|---:|
+| Cases | 15 |
+| Runs per case | 3 |
+| Total attempts | 45 |
+| Functional reliability | 45/45 (100.0%) |
+| Performance reliability | 44/45 (97.8%) |
+| Overall reliability | 44/45 (97.8%) |
+| Median latency | 1.151 seconds |
+| P95 latency | 3.977 seconds |
+| Maximum latency | 5.681 seconds |
+
+All 45 attempts passed the functional checks. One W001 attempt took 5.681 seconds and exceeded the five-second latency threshold, producing the only performance failure.
+
+This distinction matters: the agent remained functionally correct while end-to-end latency varied across model and external API calls.
 
 ## LangSmith Observability
 
@@ -996,11 +1023,11 @@ Expected successful trajectory:
 
 ```text
 User
-→ Model
-→ get_weather_for_city
-→ Open-Meteo
-→ Model
-→ Final answer
+â†’ Model
+â†’ get_weather_for_city
+â†’ Open-Meteo
+â†’ Model
+â†’ Final answer
 ```
 
 LangSmith supports investigation of:
@@ -1061,7 +1088,7 @@ The agent-facing tool was updated to return a structured domain error:
 The model then returned a user-friendly response:
 
 ```text
-I couldn’t find a location named NotARealCity12345.
+I couldnâ€™t find a location named NotARealCity12345.
 Please provide a valid city name.
 ```
 
@@ -1126,7 +1153,7 @@ The project therefore compares the final answer with the tool output from the sa
 | Numeric grounding | 100% | Hard |
 | Condition grounding | 100% | Hard |
 | Functional pass rate | 100% | Hard |
-| End-to-end latency | ≤ 5 seconds | Performance |
+| End-to-end latency | â‰¤ 5 seconds | Performance |
 | Repeated-run functional reliability | 100% | Hard |
 
 The five-second latency threshold is currently a project-level learning threshold. It should be calibrated using repeated production-like measurements before being treated as a release-blocking service-level objective.
@@ -1209,20 +1236,20 @@ The deterministic evaluators and LLM judge form a hybrid evaluation architecture
 
 ```text
 Deterministic evaluation
-    ├── Tool selection
-    ├── Tool name and count
-    ├── City argument
-    ├── Execution and domain status
-    ├── Numeric and condition grounding
-    ├── Exceptions
-    └── Latency
+    â”œâ”€â”€ Tool selection
+    â”œâ”€â”€ Tool name and count
+    â”œâ”€â”€ City argument
+    â”œâ”€â”€ Execution and domain status
+    â”œâ”€â”€ Numeric and condition grounding
+    â”œâ”€â”€ Exceptions
+    â””â”€â”€ Latency
 
 LLM-as-a-Judge
-    ├── Semantic correctness
-    ├── Instruction adherence
-    ├── Capability honesty
-    ├── Relevance
-    └── Helpfulness and clarity
+    â”œâ”€â”€ Semantic correctness
+    â”œâ”€â”€ Instruction adherence
+    â”œâ”€â”€ Capability honesty
+    â”œâ”€â”€ Relevance
+    â””â”€â”€ Helpfulness and clarity
 ```
 
 ### Prompt v1 baseline
@@ -1239,7 +1266,7 @@ The failures were:
 
 | Case | Expected behavior | Prompt v1 behavior | Human review |
 |---|---|---|---|
-| W004 | `out_of_scope` | Answered `12 × 8 = 96` instead of declining an unsupported request | Genuine defect |
+| W004 | `out_of_scope` | Answered `12 Ã— 8 = 96` instead of declining an unsupported request | Genuine defect |
 | W010 | `future_not_supported` | Recommended Hawaii and provided unsupported seasonal, ocean, price, and island advice | Genuine defect |
 | W011 | `future_not_supported` | Began with a correct limitation but then added unsupported travel-season, price, and tropical-weather advice | Genuine defect |
 | W012 | `future_not_supported` | Recommended Tokyo for a future birthday trip | Genuine defect |
@@ -1269,7 +1296,7 @@ As a result, the agent sometimes:
 
 This revealed a coverage gap in the code-based evaluation:
 
-> Avoiding an incorrect tool call does not guarantee that the final response follows the product’s capability boundary.
+> Avoiding an incorrect tool call does not guarantee that the final response follows the productâ€™s capability boundary.
 
 ### Prompt v2 changes
 
@@ -1302,11 +1329,11 @@ Agent prompt v2 + Judge rubric v1
 |---|---:|---:|---:|
 | Semantic quality | 73.3% | 100% | +26.7 percentage points |
 | Semantic passes | 11/15 | 15/15 | +4 cases |
-| Semantic failures | 4/15 | 0/15 | −4 cases |
+| Semantic failures | 4/15 | 0/15 | âˆ’4 cases |
 | P50 latency | 2.48 seconds | 1.54 seconds | 0.94 seconds faster |
 | Total tokens | 6,204 | 10,537 | +69.8% |
 | Input tokens | 4,802 | 9,906 | +106.3% |
-| Output tokens | 1,402 | 631 | −55.0% |
+| Output tokens | 1,402 | 631 | âˆ’55.0% |
 | Total experiment cost | $0.0133 | $0.0137 | Approximately flat |
 
 Prompt v2 corrected all four semantic failures:
@@ -1323,13 +1350,13 @@ Prompt v2 corrected all four semantic failures:
 The more explicit v2 system prompt increased input-token usage:
 
 ```text
-4,802 → 9,906 input tokens
+4,802 â†’ 9,906 input tokens
 ```
 
 However, the stricter scope policy made the responses shorter:
 
 ```text
-1,402 → 631 output tokens
+1,402 â†’ 631 output tokens
 ```
 
 This represents a 55% reduction in output tokens.
@@ -1337,7 +1364,7 @@ This represents a 55% reduction in output tokens.
 The total experiment cost remained nearly unchanged:
 
 ```text
-$0.0133 → $0.0137
+$0.0133 â†’ $0.0137
 ```
 
 The result illustrates an evaluation trade-off:
@@ -1349,7 +1376,7 @@ The result illustrates an evaluation trade-off:
 Prompt v2 had a lower observed P50 latency:
 
 ```text
-2.48 seconds → 1.54 seconds
+2.48 seconds â†’ 1.54 seconds
 ```
 
 This may be partly explained by shorter responses for unsupported requests. However, a single 15-case experiment is not sufficient to claim a statistically reliable latency improvement.
@@ -1380,25 +1407,25 @@ The improvement cycle was:
 
 ```text
 Define capability boundary
-        ↓
+        â†“
 Build deterministic evaluators
-        ↓
+        â†“
 Achieve 100% functional correctness
-        ↓
+        â†“
 Run LLM-as-a-Judge
-        ↓
+        â†“
 Discover four semantic scope violations
-        ↓
+        â†“
 Human-review judge failures
-        ↓
+        â†“
 Confirm all four as genuine defects
-        ↓
+        â†“
 Strengthen the system prompt
-        ↓
+        â†“
 Hold dataset and judge constant
-        ↓
+        â†“
 Rerun and compare experiments
-        ↓
+        â†“
 Improve semantic quality from 73.3% to 100%
 ```
 
@@ -1409,6 +1436,103 @@ This demonstrates why production agent evaluation should combine:
 - Human review
 - Repeated-run reliability
 - Trace-based failure analysis
+
+## Human Calibration of the LLM Judge
+
+The semantic-quality judge was calibrated against independent human labels using the 15 prompt-v1 experiment outputs.
+
+Prompt v1 was selected because it contained both passing and failing responses. Prompt v2 passed every semantic case and therefore did not provide both classes for calibration.
+
+Human feedback was stored separately from judge feedback:
+
+```text
+semantic_quality          = LLM judge label
+human_semantic_quality    = independent human label
+```
+
+The calibration data is stored in:
+
+```text
+evals/results/judge-calibration-v1.csv
+```
+
+The calculation is implemented in:
+
+```text
+evals/calculate_judge_agreement.py
+```
+
+Run it from `Agents/weather_agent`:
+
+```bash
+python -m evals.calculate_judge_agreement
+```
+
+### Calibration results
+
+| Metric | Result |
+|---|---:|
+| Calibration examples | 15 |
+| Human passes | 11 |
+| Human failures | 4 |
+| Matching decisions | 15/15 |
+| Observed agreement | 100.0% |
+| Expected agreement | 60.9% |
+| Cohen's kappa | 1.000 |
+| Failure precision | 100.0% |
+| Failure recall | 100.0% |
+| Failure F1 | 100.0% |
+| Disagreements | 0 |
+
+Failure detection treats `Fail` as the positive class:
+
+| Judge result | Human Fail | Human Pass |
+|---|---:|---:|
+| Judge Fail | 4 | 0 |
+| Judge Pass | 0 | 11 |
+
+A Cohen's kappa of `1.000` represents perfect agreement on this calibration sample. It does not establish universal judge accuracy because the dataset contains only 15 examples.
+
+Future calibration should include:
+
+- A larger sample
+- More balanced pass and fail labels
+- Ambiguous responses
+- Borderline refusals
+- Partially correct answers
+- Subtle grounding errors
+
+## Evaluation Artifacts
+
+| Artifact | Purpose |
+|---|---|
+| `evals/eval-spec.md` | Capability, metrics, risks, thresholds, and pass criteria |
+| `evals/weather-agent-golden-v1.csv` | Golden evaluation dataset |
+| `evals/evaluators.py` | Deterministic evaluator functions |
+| `evals/run_evals.py` | Single-run evaluation harness |
+| `evals/run_reliability.py` | Repeated-run reliability harness |
+| `evals/run_langsmith_experiment.py` | LangSmith experiment runner |
+| `evals/judge-rubric.md` | Shared human and LLM semantic-quality rubric |
+| `evals/calculate_judge_agreement.py` | Judge-agreement and Cohen's-kappa calculation |
+| `evals/results/latest-results.csv` | Latest deterministic evaluation results |
+| `evals/results/reliability-details.csv` | Attempt-level reliability results |
+| `evals/results/reliability-summary.csv` | Per-case reliability summary |
+| `evals/results/judge-calibration-v1.csv` | Human and LLM judge labels |
+
+## Recommended CI Evaluation Gates
+
+| Gate | Execution point | Blocking |
+|---|---|---|
+| Unit tests | Every pull request | Yes |
+| Evaluator unit tests | Every pull request | Yes |
+| Judge-calibration calculation | Every pull request | Yes |
+| Live golden evaluation | Manual or scheduled | Initially no |
+| Repeated reliability evaluation | Manual or scheduled | No |
+| LangSmith semantic judge | Before release | Yes for semantic regressions |
+
+Live evaluations should not initially block every pull request because they require secrets, consume tokens, depend on external services, and have variable latency.
+
+Deterministic tests and offline judge-calibration checks are better suited to mandatory pull-request gates. Live evaluations can run on demand, nightly, or before release.
 
 ## Current Status
 
@@ -1457,42 +1581,23 @@ Completed:
 - [x] Improve the Weather Agent system prompt
 - [x] Compare prompt v1 and prompt v2 experiments
 - [x] Improve semantic quality from 73.3% to 100%
+- [x] Run repeated reliability evaluation for prompt v2
+- [x] Add independent human semantic-quality labels
+- [x] Calculate observed and expected judge agreement
+- [x] Calculate Cohen's kappa
+- [x] Calculate failure precision, recall, and F1
+- [x] Add a reproducible judge-calibration script
 
 Next:
 
-- [ ] Human-label judge calibration examples
-- [ ] Calculate judge agreement and Cohen’s kappa
-- [ ] Run repeated reliability evaluation for prompt v2
+- [ ] Expand the human calibration dataset
+- [ ] Add ambiguous and borderline semantic cases
 - [ ] Add CI evaluation gates
+- [ ] Add scheduled live evaluation
+- [ ] Add release-quality thresholds
 - [ ] Explore Promptfoo integration
 
-## Next Evaluation Phase: LLM-as-a-Judge
-
-Code-based evaluators are best for objective properties such as:
-
-- Tool name
-- Tool-call count
-- City argument
-- Numeric grounding
-- Execution status
-- Exceptions
-- Response presence
-- Latency
-
-Some response-quality properties are harder to evaluate using exact rules.
-
-The next phase will use an LLM-as-a-Judge for semantic dimensions such as:
-
-- Correctness
-- Relevance
-- Capability honesty
-- Instruction adherence
-- Helpfulness
-- Clarity
-
-The judge will not replace deterministic evaluators. It will complement them.
-
-The final evaluation architecture will be hybrid:
+## Final Evaluation Architecture
 
 ```text
 Code-based evaluation
@@ -1504,4 +1609,4 @@ Repeated-run reliability
 LangSmith trace inspection
 ```
 
-This approach uses deterministic checks for objective behavior and model-based judgment for nuanced semantic quality.
+This architecture uses deterministic checks for objective behavior, model-based judgment for nuanced semantic quality, human labels to calibrate the judge, and repeated runs to measure non-deterministic reliability.
