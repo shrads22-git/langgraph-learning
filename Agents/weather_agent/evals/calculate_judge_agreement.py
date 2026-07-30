@@ -11,6 +11,8 @@ RESULTS_PATH = (
     / "judge-calibration-v1.csv"
 )
 
+MINIMUM_KAPPA = 0.60
+
 
 def parse_human_label(value: str) -> int:
     """Convert LangSmith Pass/Fail feedback into 1/0."""
@@ -37,7 +39,9 @@ def parse_judge_label(value: str) -> int:
     if score == 0.0:
         return 0
 
-    raise ValueError(f"Expected judge score 0 or 1, received {score}.")
+    raise ValueError(
+        f"Expected judge score 0 or 1, received {score}."
+    )
 
 
 def calculate_kappa(
@@ -46,12 +50,25 @@ def calculate_kappa(
 ) -> tuple[float, float, float]:
     """Calculate observed agreement, expected agreement, and kappa."""
 
+    if len(human_labels) != len(judge_labels):
+        raise ValueError(
+            "Human and judge label lists must have the same length."
+        )
+
+    if not human_labels:
+        raise ValueError("At least one label is required.")
+
     total = len(human_labels)
 
-    observed_agreement = sum(
+    matching_labels = sum(
         human == judge
-        for human, judge in zip(human_labels, judge_labels)
-    ) / total
+        for human, judge in zip(
+            human_labels,
+            judge_labels,
+        )
+    )
+
+    observed_agreement = matching_labels / total
 
     human_pass_rate = sum(human_labels) / total
     human_fail_rate = 1 - human_pass_rate
@@ -65,13 +82,21 @@ def calculate_kappa(
     )
 
     if expected_agreement == 1:
-        kappa = 1.0 if observed_agreement == 1 else 0.0
+        kappa = (
+            1.0
+            if observed_agreement == 1
+            else 0.0
+        )
     else:
         kappa = (
             observed_agreement - expected_agreement
         ) / (1 - expected_agreement)
 
-    return observed_agreement, expected_agreement, kappa
+    return (
+        observed_agreement,
+        expected_agreement,
+        kappa,
+    )
 
 
 def main() -> None:
@@ -82,9 +107,9 @@ def main() -> None:
             f"Calibration CSV was not found: {RESULTS_PATH}"
         )
 
-    human_labels = []
-    judge_labels = []
-    disagreements = []
+    human_labels: list[int] = []
+    judge_labels: list[int] = []
+    disagreements: list[dict[str, str | int]] = []
 
     true_failures = 0
     false_failures = 0
@@ -92,7 +117,7 @@ def main() -> None:
     true_passes = 0
 
     with RESULTS_PATH.open(
-        encoding="utf-8",
+        encoding="utf-8-sig",
         newline="",
     ) as csv_file:
         rows = csv.DictReader(csv_file)
@@ -148,21 +173,28 @@ def main() -> None:
                 )
 
     if not human_labels:
-        raise ValueError("The calibration CSV contains no rows.")
+        raise ValueError(
+            "The calibration CSV contains no rows."
+        )
 
     observed, expected, kappa = calculate_kappa(
         human_labels,
         judge_labels,
     )
 
-    detected_failures = true_failures + false_failures
-    actual_failures = true_failures + missed_failures
+    detected_failures = (
+        true_failures + false_failures
+    )
+    actual_failures = (
+        true_failures + missed_failures
+    )
 
     failure_precision = (
         true_failures / detected_failures
         if detected_failures
         else 0.0
     )
+
     failure_recall = (
         true_failures / actual_failures
         if actual_failures
@@ -174,29 +206,71 @@ def main() -> None:
             2
             * failure_precision
             * failure_recall
-            / (failure_precision + failure_recall)
+            / (
+                failure_precision
+                + failure_recall
+            )
         )
     else:
         failure_f1 = 0.0
 
     print("\nLLM Judge Calibration Summary")
     print("--------------------------------")
-    print(f"Examples:              {len(human_labels)}")
-    print(f"Human passes:          {sum(human_labels)}")
-    print(f"Human failures:        {len(human_labels) - sum(human_labels)}")
-    print(f"Observed agreement:    {observed:.1%}")
-    print(f"Expected agreement:    {expected:.1%}")
-    print(f"Cohen's kappa:         {kappa:.3f}")
+    print(
+        f"Examples:              "
+        f"{len(human_labels)}"
+    )
+    print(
+        f"Human passes:          "
+        f"{sum(human_labels)}"
+    )
+    print(
+        f"Human failures:        "
+        f"{len(human_labels) - sum(human_labels)}"
+    )
+    print(
+        f"Observed agreement:    "
+        f"{observed:.1%}"
+    )
+    print(
+        f"Expected agreement:    "
+        f"{expected:.1%}"
+    )
+    print(
+        f"Cohen's kappa:         "
+        f"{kappa:.3f}"
+    )
 
     print("\nFailure Detection")
     print("--------------------------------")
-    print(f"True failures:         {true_failures}")
-    print(f"False failures:        {false_failures}")
-    print(f"Missed failures:       {missed_failures}")
-    print(f"True passes:           {true_passes}")
-    print(f"Failure precision:     {failure_precision:.1%}")
-    print(f"Failure recall:        {failure_recall:.1%}")
-    print(f"Failure F1:            {failure_f1:.1%}")
+    print(
+        f"True failures:         "
+        f"{true_failures}"
+    )
+    print(
+        f"False failures:        "
+        f"{false_failures}"
+    )
+    print(
+        f"Missed failures:       "
+        f"{missed_failures}"
+    )
+    print(
+        f"True passes:           "
+        f"{true_passes}"
+    )
+    print(
+        f"Failure precision:     "
+        f"{failure_precision:.1%}"
+    )
+    print(
+        f"Failure recall:        "
+        f"{failure_recall:.1%}"
+    )
+    print(
+        f"Failure F1:            "
+        f"{failure_f1:.1%}"
+    )
 
     if disagreements:
         print("\nDisagreements")
@@ -210,6 +284,24 @@ def main() -> None:
             )
     else:
         print("\nDisagreements:         None")
+
+    # This is the blocking CI calibration gate.
+    print("\nCalibration Gate")
+    print("--------------------------------")
+    print(
+        f"Required kappa:        "
+        f"{MINIMUM_KAPPA:.3f}"
+    )
+    print(
+        f"Actual kappa:          "
+        f"{kappa:.3f}"
+    )
+
+    if kappa < MINIMUM_KAPPA:
+        print("Gate result:           FAIL")
+        raise SystemExit(1)
+
+    print("Gate result:           PASS")
 
 
 if __name__ == "__main__":
